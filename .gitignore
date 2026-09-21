@@ -5,4 +5,5 @@
 *.db-wal
 __pycache__/
 .pytest_cache/
+.pytest-integration/
 *-credentials.json
