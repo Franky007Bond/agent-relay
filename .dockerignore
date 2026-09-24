@@ -1,0 +1,11 @@
+.venv
+.git
+.pytest_cache
+.pytest-integration
+.ruff_cache
+__pycache__
+*.db
+*.db-shm
+*.db-wal
+*-credentials.json
+test_*.py
