@@ -1,4 +1,4 @@
-"""HTTP integration tests against a live uvicorn process and on-disk SQLite.
+"""HTTP integration tests against a live uvicorn process and PostgreSQL.
 
 These complement in-process TestClient tests in ``test_agent_relay.py`` by
 exercising the same paths a operator or worker CLI uses over the network.
@@ -7,12 +7,10 @@ exercising the same paths a operator or worker CLI uses over the network.
 from __future__ import annotations
 
 import os
-import shutil
 import socket
 import subprocess
 import sys
 import time
-import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -44,10 +42,10 @@ def _wait_until_ready(base_url: str, timeout_seconds: float = 15.0) -> None:
 
 @pytest.fixture
 def live_relay() -> Iterator[str]:
-    run_dir = ROOT / ".pytest-integration" / uuid.uuid4().hex
-    run_dir.mkdir(parents=True, exist_ok=True)
-    db_file = run_dir / "integration.db"
-    database_url = f"sqlite:///{db_file.resolve().as_posix()}"
+    database_url = os.environ.get(
+        "RELAY_DATABASE_URL",
+        "postgresql+psycopg://agent_relay:agent_relay@localhost:5432/agent_relay_test",
+    )
     port = _free_port()
     base_url = f"http://127.0.0.1:{port}"
     env = os.environ.copy()
@@ -70,11 +68,10 @@ def live_relay() -> Iterator[str]:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
-        shutil.rmtree(run_dir, ignore_errors=True)
 
 
 def test_acceptance_scenario_1_register_send_claim_complete_read(live_relay: str) -> None:
-    """SPEC acceptance scenario 1 over live HTTP and a real SQLite file."""
+    """SPEC acceptance scenario 1 over live HTTP and PostgreSQL."""
 
     base = live_relay
     with httpx.Client(base_url=base, timeout=60.0) as client:
