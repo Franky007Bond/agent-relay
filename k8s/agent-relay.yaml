@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-relay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-relay
+  template:
+    metadata:
+      labels:
+        app: agent-relay
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -U agent_relay -d agent_relay; do sleep 2; done
+      containers:
+        - name: agent-relay
+          image: agent-relay:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: RELAY_DATABASE_URL
+              value: postgresql+psycopg://agent_relay:agent_relay@postgres:5432/agent_relay
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-relay
+spec:
+  type: NodePort
+  selector:
+    app: agent-relay
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30080
