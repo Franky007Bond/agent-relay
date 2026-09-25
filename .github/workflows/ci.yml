@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agent_relay
+          POSTGRES_PASSWORD: agent_relay
+          POSTGRES_DB: agent_relay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_relay -d agent_relay"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      RELAY_DATABASE_URL: postgresql+psycopg://agent_relay:agent_relay@localhost:5432/agent_relay_test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run starter tests
+        run: uv run pytest -q test_agent_relay.py
+
+      - name: Run integration tests
+        run: uv run pytest -q test_integration_live_api.py
+
+  deploy:
+    name: build and deploy
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t agent-relay:local .
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: agent-relay
+          config: k8s/kind-config.yaml
+          wait: 120s
+
+      - name: Load images into kind
+        run: |
+          docker pull postgres:16-alpine
+          kind load docker-image agent-relay:local --name agent-relay
+          kind load docker-image postgres:16-alpine --name agent-relay
+
+      - name: Prepare Postgres data directory
+        run: docker exec agent-relay-control-plane mkdir -p /var/local/agent-relay-postgres
+
+      - name: Deploy
+        run: |
+          kubectl apply -f k8s/postgres.yaml
+          kubectl apply -f k8s/agent-relay.yaml
+          kubectl rollout status deployment/postgres --timeout=180s
+          kubectl rollout status deployment/agent-relay --timeout=180s
